@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+    <title>Route Creator</title>
+    <style>
+        @media print {
+            /* hide anything */
+            
+            body>* {
+                display: none;
+            }
+        }
+        #right-panel {
+            font-family: 'Roboto', 'sans-serif';
+            line-height: 30px;
+            padding-left: 10px;
+            text-align: center;
+        }
+        #right-panel select,
+        #right-panel input[type=button] {
+            font-size: 15px;
+            width: auto;
+        }
+        #right-panel select,
+        #right-panel input {
+            font-size: 12px;
+            width: 500px;
+        }
+        #right-panel select {
+            width: 100%;
+        }
+        #right-panel i {
+            font-size: 12px;
+        }
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        #map {
+            /*float: left;*/
+            
+            width: 100%;
+            height: 96%;
+            margin: 0;
+            padding: 0;
+            /*ensure that the map is also visible when printing*/
+            
+            display: block;
+        }
+        ul#right-panel li {
+            background: #fff;
+            padding: 5px;
+            font-size: 14px;
+            font-family: Arial;
+            border: 1px solid #ccc;
+            box-shadow: 0 2px 2px rgba(33, 33, 33, 0.4);
+            /*display: none;*/
+            
+            overflow: auto;
+            display: inline-block;
+        }
+        #directions-panel {
+            /*rigt*/
+            
+            height: 100%;
+            float: right;
+            width: auto;
+            overflow: auto;
+        }
+        #steps-panel {
+            width: 20%;
+            float: left;
+            /*center*/
+        }
+        .controles {
+            width: 100%;
+            padding: 4px;
+            margin: 4px;
+        }
+        .toggle-panel {
+            display: inline-block;
+            vertical-align: top;
+            /*margin-right: 6px;*/
+        }
+        #aligntext.toggle-panel {
+            vertical-align: top;
+            height: 25px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+    <!-- <div id="warnings-panel"></div> -->
+    <div class="controles">
+        <!--         <div class="toggle-panel" id ="aligntext">
+           <p>Load Saved Route</p>
+        </div> -->
+        <div class="toggle-panel">
+            <input type="button" id="loadFileXml" value="Load Saved Route" onclick="document.getElementById('submitSavedRoute').click();" />
+            <input type="file" style="display:none;" id="submitSavedRoute" onchange='readSavedRoute(this)'>
+        </div>
+        <div class="toggle-panel">
+            <input type="button" value="Toggle Street View" onclick="toggleStreetView();"></input>
+        </div>
+        <div class="toggle-panel">
+            <input onclick="clearMarkers();" type=button value="Hide Markers">
+        </div>
+        <div class="toggle-panel">
+            <input onclick="showMarkers();" type=button value="Show All Markers">
+        </div>
+        <div class="toggle-panel">
+            <input onclick="showStreetNameOnAllMarkers();" type=button value="show marker Street Names">
+        </div>
+        <div class="toggle-panel">
+            <input onclick="hideStreetNameOnAllMarkers();" type=button value="hide marker Street Names">
+        </div>
+        <div class="toggle-panel">
+            <input onclick="saveRoute();" type=button value="Save Route">
+        </div>
+        <div class="toggle-panel">
+            <input onclick="displayRoute();" type=button value="Display Route">
+        </div>
+        <div class="toggle-panel">
+            <input type="button" value="Print map" onclick="window.print()" />
+        </div>
+
+
+
+
+
+    </div>
+
+    <ul id="right-panel">
+        <li>
+            <div>
+                <b>Street View Address:</b>
+                <form>
+                    <input type="text" id="street" name="street">
+
+                    <input type="Button" id="streetToggle" name="street" value="Street View" onclick="toggleStreetView()">
+                    <input type="Button" id="streetMarker" name="street" value="add Marker">
+
+                </form>
+            </div>
+        </li>
+        <li>
+            <div>
+                <b>Input Route:</b>
+                <input type="file" id="submit" onchange='readText(this)'>
+
+            </div>
+        </li>
+    </ul>
+    <div id="steps-panel"></div>
+    <div id="directions-panel"></div>
+
+
+
+    <script>
+
+        if (!('webkitSpeechRecognition' in window)) {
+          alert("Some features only work in Chrome")
+        }
+ 
+        // say a message
+        function speak(text, callback) {
+            var u = new SpeechSynthesisUtterance();
+            u.text = text;
+            u.lang = 'en-US';
+         
+            u.onend = function () {
+                if (callback) {
+                    callback();
+                }
+            };
+         
+            u.onerror = function (e) {
+                if (callback) {
+                    callback(e);
+                }
+            };
+         
+            speechSynthesis.speak(u);
+        }
+
+
+        var reader = new FileReader();
+        var markers = [];
+        var markerId = 0;
+
+
+
+        function readText(inputFile) {
+
+            // Instantiate an info window to hold step text.
+            var stepDisplay = new google.maps.InfoWindow;
+
+            // var infowindow = new google.maps.InfoWindow({
+            //     content: "loading..."
+            // });
+
+            if (inputFile.files && inputFile.files[0]) {
+                var reader = new FileReader();
+                var geocoder = new google.maps.Geocoder();
+                var bounds = new google.maps.LatLngBounds();
+                var ErrorPanel = document.getElementById('steps-panel');
+
+
+                reader.onload = function(e) {
+                    var output = e.target.result;
+
+                    output = output.split("\n");
+                    console.log(output)
+                        //break up request
+                    var secs = 1000 * 7;
+                    var count = 0;
+                    // console.log(output.length)
+                    var popMarker = setInterval(function() {
+                        if (count < output.length) {
+                            // var $badge = $('#nhb_01');
+                            console.log("enter lop count: " + count)
+                            for (i = count; i < count + 8; i++) {
+                                console.log("in lop i: " + i)
+                                if (output[i] == null) {
+                                    break;
+                                }
+                                address = output[i];
+                                console.log(output[i])
+                                geocoder.geocode({
+                                    'address': address
+                                }, function(results, status) {
+
+                                    if (status == google.maps.GeocoderStatus.OK) {
+                                        var latitude = results[0].geometry.location.lat();
+                                        var longitude = results[0].geometry.location.lng();
+                                        var myLatLng = new google.maps.LatLng(latitude, longitude);
+                                        var marker = new google.maps.Marker({
+                                            position: {
+                                                lat: latitude,
+                                                lng: longitude
+                                            },
+                                            map: map,
+                                            title: results[0].formatted_address,
+                                            html: "lat:" + latitude + "," + "lng:" + longitude
+                                        });
+                                        marker.id = markerId;
+                                        markerId++;
+                                        markers.push(marker);
+                                        bounds.extend(myLatLng);
+                                        addMarkerListener(marker, null);
+
+                                    } else {
+                                        ErrorPanel.innerHTML += 'Error Segment: ' + status + ' for: ' + output[i] + '\n';
+                                        console.log(status)
+                                    }
+                                    map.fitBounds(bounds);
+                                });
+                            }
+                            count += 10;
+                        } else {
+                            alert("Route is Ready");
+                            clearInterval(popMarker);
+
+                        }
+                    }, secs);
+
+                    directionsDisplay.setMap(map);
+
+                }; //end onload()
+                reader.readAsText(inputFile.files[0]);
+
+            }
+
+        }
+
+        function readSavedRoute(inputFile) {
+            // console.log(inputFile.value)
+
+            var xmlhttp = new XMLHttpRequest();
+            var url = inputFile.value;
+
+            xmlhttp.onreadystatechange = function() {
+                if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+                    uniqueNodes = JSON.parse(xmlhttp.responseText);
+                    createRouteWithWaypoits(uniqueNodes)
+                    console.log(JSON.stringify(uniqueNodes[0]))
+
+                }
+            };
+            xmlhttp.open("GET", url, true);
+            xmlhttp.send();
+
+
+            // console.log(JSON.stringify(uniqueNodes[0]["lat"]))
+        }
+
+        //finds the distance between two lat lon points
+        function calculateDistance(lat1, lon1, lat2, lon2, unit) {
+            var radlat1 = Math.PI * lat1 / 180
+            var radlat2 = Math.PI * lat2 / 180
+            var radlon1 = Math.PI * lon1 / 180
+            var radlon2 = Math.PI * lon2 / 180
+            var theta = lon1 - lon2
+            var radtheta = Math.PI * theta / 180
+            var dist = Math.sin(radlat1) * Math.sin(radlat2) + Math.cos(radlat1) * Math.cos(radlat2) * Math.cos(radtheta);
+            dist = Math.acos(dist)
+            dist = dist * 180 / Math.PI
+            dist = dist * 60 * 1.1515
+            if (unit == "K") {
+                dist = dist * 1.609344
+            }
+            if (unit == "N") {
+                dist = dist * 0.8684
+            }
+            return dist
+        }
+
+        function saveRoute() {
+            var txtContent = "";
+            if (!window.uniqueNodes) {
+                console.log("in")
+                sourtRoute();
+            }
+            txtContent += "[ "
+            for (var i = 0; i < uniqueNodes.length; i++) {
+                // markers[i].setMap(map);
+                txtContent += JSON.stringify(uniqueNodes[i]);
+                if (i != uniqueNodes.length - 1) {
+                    txtContent += "," + "\n"
+                }
+            }
+            txtContent += " ]"
+                // Build a data URI:
+            uri = "data:application/octet-stream," + encodeURIComponent(txtContent);
+
+            location.href = uri;
+        }
+
+        // function saveRouteStreetName() {
+        //     var txtContent = "";
+
+        //     for (var i = 0; i < markers.length; i++) {
+        //         txtContent += markers[i].title + "\n";
+        //     }
+        //     // Build a data URI:
+        //     uri = "data:application/octet-stream," + encodeURIComponent(txtContent);
+
+        //     // Click on the file to download
+        //     // You can also do this as a button that has the href pointing to the data URI
+        //     location.href = uri;
+        // }
+
+        function displayRoute() {
+            sourtRoute();
+            createRouteWithWaypoits(uniqueNodes);
+        }
+
+        //sorts and saves latlon of marker locations
+        function sourtRoute() {
+            var txtContent = "";
+            uniqueNodes = [];
+            for (var i = 0; i < markers.length; i++) {
+                uniqueNodes[i] = {
+                    "id": i,
+                    "lng": markers[i].getPosition().lng(),
+                    "lat": markers[i].getPosition().lat(),
+                    "street": markers[i].title
+                }
+            }
+
+            for (i = 0; i < uniqueNodes.length; i++) {
+                uniqueNodes[i]["distance"] = calculateDistance(uniqueNodes[0]["lat"], uniqueNodes[0]["lng"], uniqueNodes[i]["lat"], uniqueNodes[i]["lng"], "K");
+            }
+
+            uniqueNodes.sort(function(a, b) {
+                return a.distance - b.distance;
+            });
+        }
+
+        //saves the street names of all markers, does not sort
+        function createRouteWithWaypoits(uniqueNodes) {
+            // console.log(JSON.stringify(uniqueNodes))
+            // var tempNodes = []
+            // console.log(JSON.stringify(tempNodes))
+            // tempNodes = uniqueNodes;
+            // console.log(JSON.stringify(tempNodes) + " is")
+
+
+            var tempArray = [];
+            var holder = "";
+            var interval = 9;
+            var end = 9;
+            console.log(uniqueNodes.length + "U")
+            for (var i = 0; i <= uniqueNodes.length;) {
+                holder += i + ",";
+                if (uniqueNodes[i] == null) {
+                    // console.log("null at " + i)
+                    // console.log(JSON.stringify(tempArray))
+                    // console.log(tempArray.length)
+                    calculateAndDisplayRoute(directionsService, directionsDisplay, tempArray)
+
+                    tempArray = [];
+                    break;
+                } else {
+                    tempArray.push(uniqueNodes[i])
+                    if (i === end) {
+                        // console.log(holder)
+                        // console.log(JSON.stringify(tempArray))
+                        // console.log(tempArray.length)
+                        calculateAndDisplayRoute(directionsService, directionsDisplay, tempArray)
+
+                        holder = ""
+                        tempArray = [];
+                        end += interval;
+                    } else {
+                        i++
+                    }
+                }
+                var directionsDisplay = new google.maps.DirectionsRenderer;
+
+                directionsDisplay.setMap(map);
+
+            }
+        }
+
+        var infowindowArray = [];
+
+        function showStreetNameOnAllMarkers() {
+            for (var i = 0; i < markers.length; i++) {
+                //prevent trying to open infowindow if it is already open
+                if (typeof infowindowArray[i] !== "undefined" && infowindowArray[i]["status"] == "open") {
+                    //infowindow is open
+                } else if (typeof infowindowArray[i] !== "undefined" && infowindowArray[i]["status"] == "closed") {
+                    //infowindow is closed
+                    infowindowArray[i]["content"].open(map, markers[i]);
+                    infowindowArray[i]["status"] = "open";
+                } else {
+                    // infowindow DNS
+                    var infowindow = new google.maps.InfoWindow({
+                        content: markers[i].title
+                    });
+                    infowindowArray.push({
+                        "id": i,
+                        "content": infowindow,
+                        "status": "closed"
+                    })
+                    infowindow.open(map, markers[i]);
+                    infowindowArray[i]["status"] = "open";
+                }
+            }
+        }
+
+        function hideStreetNameOnAllMarkers() {
+            console.log("close info window")
+            for (var i = 0; i < infowindowArray.length; i++) {
+                infowindowArray[i]["content"].close();
+                infowindowArray[i]["status"] = "closed";
+            }
+        }
+
+
+        // Sets the map on all markers in the array.
+        function setMapOnAll(map) {
+            holder = [];
+            for (var i = 0; i < markers.length; i++) {
+                markers[i].setMap(map);
+                // txtContent += "lat: " + markers[i].getPosition().lat() + ", " + "lng: " + markers[i].getPosition().lng() + "\n";
+                // txtContent += markers[i].getPosition().lat() + ", " + markers[i].getPosition().lng() + "\n";
+            }
+        }
+
+        function calculateAndDisplayRoute(directionsService, directionsDisplay, inputNode) {
+            var waypts = [];
+
+            console.log(inputNode.length)
+            if (inputNode.length > 2) {
+                for (var i = 0; i < inputNode.length; i++) {
+                    waypts.push({
+                        location: new google.maps.LatLng(inputNode[i]["lat"], inputNode[i]["lng"]),
+                        stopover: true
+                    });
+                }
+
+                waypts.shift();
+                waypts.pop();
+            }
+
+
+            directionsService.route({
+                origin: new google.maps.LatLng(inputNode[0]["lat"], inputNode[0]["lng"]),
+                destination: new google.maps.LatLng(inputNode[inputNode.length - 1]["lat"], inputNode[inputNode.length - 1]["lng"]),
+                waypoints: waypts,
+                optimizeWaypoints: true,
+                travelMode: google.maps.TravelMode.DRIVING
+            }, function(response, status) {
+                if (status === google.maps.DirectionsStatus.OK) {
+                    directionsDisplay.setDirections(response);
+                    var route = response.routes[0];
+                    var summaryPanel = document.getElementById('directions-panel');
+                    // summaryPanel.innerHTML = '';
+                    // For each route, display summary information.
+                    for (var i = 0; i < route.legs.length; i++) {
+                        var routeSegment = i + 1;
+                        summaryPanel.innerHTML += '<b>Route Segment: ' + routeSegment +
+                            '</b><br>';
+                        summaryPanel.innerHTML += route.legs[i].start_address + ' to ';
+                        summaryPanel.innerHTML += route.legs[i].end_address + '<br>';
+                        summaryPanel.innerHTML += route.legs[i].distance.text + '<br><br>';
+                    }
+                } else {
+                    window.alert('Directions request failed due to ' + status);
+                }
+            });
+        }
+
+
+        function addMarkerListener(marker) {
+            console.log("added listiner")
+                // google.maps.event.addListener(marker, 'mouseover', function() {
+                //     console.log("mouse in")
+                //     infowindow.setContent(this.title);
+                //     infowindow.open(map, this);
+                // });
+
+            // google.maps.event.addListener(marker, 'mouseout', function() {
+            //     console.log("mouse out")
+            //     infowindow.close(map, this);
+
+            // });
+
+            //delete marker on right click
+            google.maps.event.addListener(marker, "rightclick", function(e) {
+                console.log("right")
+                    // marker.setMap(null);
+
+                for (var i = 0; i < markers.length; i++) {
+                    if (marker.id == markers[i].id) {
+                        //Remove the marker from Map                  
+                        markers[i].setMap(null);
+                        markers.splice(i, 1);
+                        infowindowArray.splice(i, 1);
+
+                        //Remove the marker from array.
+
+                        return;
+                    }
+                }
+
+
+            });
+
+            //show street view on left click
+            google.maps.event.addListener(marker, "click", function(e) {
+                console.log("street view")
+                 speak(marker.title);
+
+                // panorama.setPosition({
+                //     lat: marker.getPosition().lat(),
+                //     lng: marker.getPosition().lng()
+                // });
+                // panorama.setVisible(true);
+
+            });
+        }
+
+
+        // Removes/hides the markers from the map, but keeps them in the array.
+        function clearMarkers() {
+            setMapOnAll(null);
+            // console.log(holder)
+        }
+
+        // Shows any markers currently in the array.
+        function showMarkers() {
+            setMapOnAll(map);
+            console.log()
+        }
+
+
+        function initMap() {
+            // Create a map and center it on NY.  
+            var geocoder = new google.maps.Geocoder();
+
+            // Instantiate a directions service 
+            directionsService = new google.maps.DirectionsService;
+            // Create a renderer for directions and bind it to the map.
+            directionsDisplay = new google.maps.DirectionsRenderer;
+            // Create a renderer for directions and bind it to the map.
+            directionsDisplay = new google.maps.DirectionsRenderer({
+                map: map
+            });
+
+            map = new google.maps.Map(document.getElementById('map'), {
+                zoom: 15,
+                center: {
+                    lat: 40.7128,
+                    lng: -74.0059
+                }
+            });
+            panorama = map.getStreetView();
+
+            //put panel on top of map
+            var control = document.getElementById('right-panel');
+            control.style.display = 'block';
+            map.controls[google.maps.ControlPosition.TOP_CENTER].push(control);
+
+            //initially hide the controls
+        //    if (control) control.style.visibility = 'hidden';
+
+
+
+            //add listeners to show or hide the controls
+            // google.maps.event.addDomListener(map.getDiv(),
+            //     'mouseover',
+            //     function(e) {
+            //         e.cancelBubble = true;
+            //         if (!map.hover) {
+            //             // console.log("hover")
+            //             map.hover = true;
+            //             if (control) control.style.visibility = 'visible';
+
+            //         }
+            //     });
+
+            google.maps.event.addDomListener(document.getElementsByTagName('body')[0],
+                'mouseover',
+                function(e) {
+                    if (map.hover) {
+                        if (control) control.style.visibility = 'hidden';
+
+                        map.hover = false;
+                    }
+                });
+
+
+            //auto address complete for street
+            autocomplete3 = new google.maps.places.Autocomplete(document.getElementById('street'));
+
+            // show marker street view on left click
+            document.getElementById('street').onkeypress = function(e) {
+                var event = e || window.event;
+                var charCode = event.which || event.keyCode;
+
+                if (charCode == '13') {
+                    var address = document.getElementById("street").value;
+
+                    geocoder.geocode({
+                        'address': address
+                    }, function(results, status) {
+                        if (status == google.maps.GeocoderStatus.OK) {
+                            var latitude = results[0].geometry.location.lat();
+                            var longitude = results[0].geometry.location.lng();
+                            panorama.setPosition({
+                                lat: latitude,
+                                lng: longitude
+                            });
+                            panorama.setVisible(true);
+                        }
+                    });
+                    return false;
+                }
+            }
+            document.getElementById('streetMarker').addEventListener('click', function() {
+                geocodeAddress(geocoder, map);
+            });
+        }
+
+        function toggleStreetView() {
+
+            var geocoder = new google.maps.Geocoder();
+            var address = document.getElementById("street").value;
+
+            geocoder.geocode({
+                'address': address
+            }, function(results, status) {
+                if (status == google.maps.GeocoderStatus.OK) {
+                    var latitude = results[0].geometry.location.lat();
+                    var longitude = results[0].geometry.location.lng();
+                    panorama.setPosition({
+                        lat: latitude,
+                        lng: longitude
+                    });
+
+                }
+            });
+            var toggle = panorama.getVisible();
+            if (toggle == false) {
+                panorama.setVisible(true);
+            } else {
+                panorama.setVisible(false);
+            }
+        }
+
+        function geocodeAddress(geocoder, resultsMap) {
+
+            var address = document.getElementById('street').value;
+            geocoder.geocode({
+                'address': address
+            }, function(results, status) {
+                if (status === google.maps.GeocoderStatus.OK) {
+                    resultsMap.setCenter(results[0].geometry.location);
+                    console.log(results[0].formatted_address)
+                    var marker = new google.maps.Marker({
+                        map: resultsMap,
+                        position: results[0].geometry.location,
+                        title: results[0].formatted_address
+                    });
+                    marker.id = markerId;
+                    markerId++;
+                    markers.push(marker);
+                    addMarkerListener(marker);
+
+                } else {
+                    alert('Geocode was not successful for the following reason: ' + status);
+                }
+            });
+        }
+    </script>
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=Add Your Key&libraries=places,geometry&callback=initMap"></script>
+
+
+</body>
+
+</html>
